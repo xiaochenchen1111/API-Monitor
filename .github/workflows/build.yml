@@ -1,42 +1,68 @@
-name: Build App
-on:
-  push:
-    branches: [ main, master ]
-  workflow_dispatch:
+import tkinter as tk
+from tkinter import messagebox
+import requests
+import json
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+def check_balance():
+    base_url = url_entry.get().strip()
+    api_key = key_entry.get().strip()
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+    if not base_url or not api_key:
+        messagebox.showwarning("提示", "请填写完整的 API 地址和 Key！")
+        return
 
-      - name: Install Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
+    # 多数兼容 OpenAI 格式的中转站（如 One-API）支持此查询路径
+    # 如果你的中转站查询路径不同，可以修改这里的 "/v1/dashboard/billing/subscription"
+    query_url = f"{base_url.rstrip('/')}/v1/dashboard/billing/subscription"
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
 
-      - name: Install Flet and Dependencies
-        run: |
-          pip install flet requests
+    try:
+        result_text.delete(1.0, tk.END)
+        result_text.insert(tk.END, "查询中，请稍候...\n")
+        window.update()
 
-      - name: Build Windows EXE
-        run: |
-          flet build windows
+        response = requests.get(query_url, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            # 格式化输出 JSON 数据，方便查看额度 (具体字段名取决于中转站定义)
+            formatted_data = json.dumps(data, indent=4, ensure_ascii=False)
+            result_text.delete(1.0, tk.END)
+            result_text.insert(tk.END, f"查询成功！返回数据如下：\n\n{formatted_data}")
+        else:
+            result_text.delete(1.0, tk.END)
+            result_text.insert(tk.END, f"查询失败！\n状态码：{response.status_code}\n错误信息：{response.text}")
+            
+    except requests.exceptions.RequestException as e:
+        result_text.delete(1.0, tk.END)
+        result_text.insert(tk.END, f"网络请求发生错误：\n{e}")
 
-      - name: Build Android APK
-        run: |
-          flet build apk
+# 构建图形界面
+window = tk.Tk()
+window.title("API Key 额度监控工具")
+window.geometry("500x450")
 
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: my-apps
-          path: |
-            build/windows
-            build/apk/*.apk
+# 接口地址输入框
+tk.Label(window, text="接口地址 (包含 http/https):").pack(pady=(10, 0))
+url_entry = tk.Entry(window, width=50)
+url_entry.insert(0, "https://api.openai.com") # 默认值
+url_entry.pack(pady=5)
+
+# API Key 输入框
+tk.Label(window, text="API Key:").pack(pady=(5, 0))
+key_entry = tk.Entry(window, width=50, show="*") # 密码遮挡
+key_entry.pack(pady=5)
+
+# 查询按钮
+tk.Button(window, text="一键查询额度", command=check_balance, bg="#4CAF50", fg="white").pack(pady=10)
+
+# 结果显示框
+tk.Label(window, text="查询结果:").pack()
+result_text = tk.Text(window, height=15, width=60)
+result_text.pack(pady=5)
+
+window.mainloop()
